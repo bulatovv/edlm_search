@@ -1,16 +1,32 @@
 import importlib.util
-import inspect
-import json
+import os
 import sys
 import tempfile
-from collections.abc import AsyncGenerator
+from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-import torch
 
 from edlm_search.candidate import Candidate
+
+
+class StdoutInterceptor:
+    def __init__(self, encoding):
+        self.encoding = encoding
+        self.buffer = ''
+        self.timestamps_and_lines = []
+
+    def write(self, data):
+        if isinstance(data, bytes):
+            data = data.decode(self.encoding, 'replace')
+
+        self.buffer += data
+        while '\n' in self.buffer:
+            line, self.buffer = self.buffer.split('\n', 1)
+            self.timestamps_and_lines.append((datetime.now(), line))
+
+    def flush(self):
+        pass
 
 
 class UnsafeRunner:
@@ -24,55 +40,55 @@ class UnsafeRunner:
         candidate: Candidate,
         train_df: pd.DataFrame,
         validation_df: pd.DataFrame,
-        num_epochs: int,
-    ) -> AsyncGenerator[np.ndarray]:
-        """A generator that runs the training process and yields predictions for each epoch."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            sys.path.insert(0, temp_dir)
-            try:
-                # Write model file to temp dir to be able to import it.
-                (temp_path / 'model.py').write_text(candidate.files['model.py'])
+        run_args: dict | None = None,
+    ) -> tuple[datetime, list[tuple[datetime, str]]]:
+        """Runs the candidate's main() function and captures its stdout."""
+        launch_timestamp = datetime.now()
 
-                # Dynamically import the model from the temporary directory
-                spec = importlib.util.spec_from_file_location('model', temp_path / 'model.py')
-                assert spec and spec.loader
-                model_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(model_module)
+        original_stdout = sys.stdout
+        interceptor = StdoutInterceptor(getattr(original_stdout, 'encoding', 'utf-8'))
+        sys.stdout = interceptor
 
-                # Find Dataset and Model classes
-                dataset_class = None
-                model_class = None
-                for _name, obj in inspect.getmembers(model_module):
-                    if inspect.isclass(obj):
-                        if (
-                            issubclass(obj, torch.utils.data.Dataset)
-                            and obj is not torch.utils.data.Dataset
-                        ):
-                            dataset_class = obj
-                        elif issubclass(obj, torch.nn.Module) and obj is not torch.nn.Module:
-                            model_class = obj
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
 
-                if not dataset_class or not model_class:
-                    raise RuntimeError('Could not find Dataset or Model class in model.py')
+                original_cwd = os.getcwd()
+                os.chdir(temp_path)
+                sys.path.insert(0, str(temp_path))
 
-                # Load configurations and data
-                model_config = json.loads(candidate.files['model_config.json'])
-                training_args = json.loads(candidate.files['training_args.json'])
+                try:
+                    # Write all candidate files to temp dir
+                    for filename, content in candidate.files.items():
+                        (temp_path / filename).write_text(content)
 
-                # Instantiate dataset, model, and trainer
-                dataset = dataset_class.from_config(df=train_df, config=model_config)
-                model = model_class.from_config(model_config)
-                trainer = model_module.Trainer.from_config(
-                    num_epochs=num_epochs, config=training_args, model=model, dataset=dataset
-                )
+                    # Dynamically import the main script from the temporary directory
+                    spec = importlib.util.spec_from_file_location('main', 'main.py')
+                    if spec is None or spec.loader is None:
+                        raise ImportError('Could not create module spec from main.py')
 
-                # Training and prediction loop
-                train_generator = trainer.train()
-                for _ in range(num_epochs):
-                    next(train_generator)  # Train for one epoch
-                    predictions = trainer.predict(validation_df)
-                    yield predictions
-            finally:
-                # Clean up sys.path
-                sys.path.remove(temp_dir)
+                    main_module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(main_module)
+
+                    if not hasattr(main_module, 'main'):
+                        raise RuntimeError('Candidate code does not have a main() function.')
+
+                    # The main function is expected to print predictions to stdout.
+                    if run_args is None:
+                        run_args = {}
+                    main_module.main(train_df, validation_df, **run_args)
+
+                finally:
+                    os.chdir(original_cwd)
+                    sys.path.remove(str(temp_path))
+        finally:
+            sys.stdout = original_stdout
+            # Handle any remaining text in the buffer that doesn't end with a newline
+            if interceptor.buffer:
+                interceptor.timestamps_and_lines.append((datetime.now(), interceptor.buffer))
+
+        return (launch_timestamp, interceptor.timestamps_and_lines)
+
+
+class RunnerOutputParseError(Exception):
+    pass

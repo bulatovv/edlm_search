@@ -3,14 +3,15 @@ Your task is to develop a complete pipeline for training a PyTorch model to solv
 # Requirements
 You must provide three distinct files: a primary Python submission script and two corresponding JSON configuration files.
 
-* **`model.py`**: A single Python script containing all the necessary code for the data handling, model definition, and training logic. This script must not contain any other code. It must include:
+* **`main.py`**: A single Python script containing all the necessary code for the data handling, model definition, and training logic. This script must not contain any other code. It must include:
     * A `torch.utils.data.Dataset` class designed to preprocess the data into a format suitable for your model.
     * A `torch.nn.Module` class that defines your model's architecture. This class must have a `.from_config(cls, config)` class method to properly configure and instantiate it from a dictionary.
     * A `Trainer` class to encapsulate the training loop, optimization, and management of the model's current weights. This class must have the following methods:
         * A `.from_config(cls, num_epochs, config, model, dataset)` class method for its configuration and instantiation.
-        * A `.train(self)` method that is a generator. This method must only perform the training loop; no validation metrics should be calculated. It must `yield` at the end of each training epoch; the `yield` statement itself is mandatory, but any value it produces will be ignored.
         * A `.predict(self, df)` method that takes input rows in the same format the `Dataset` consumes and returns predicted labels, reverse-transformed into their original format.
-
+        * A `.train(self)` method that is a generator. This method must only perform the training loop. It must `yield` prediction labels on the validation dataset at the end of each training epoch.
+    * A `main(train_df, valid_df, num_epochs)` function, which will act as a script entrypoint, initiating the model, dataset and trainer. It should print current epoch validation labels, in the Python list format `[...]`
+    * No other section, like `if __name__ == `__main__`, is** required
 * **`model_config.json`**: A JSON file containing the configuration for your model's architecture (e.g., layer sizes, dropout rates, embedding dimensions).
 * **`training_args.json`**: A JSON file containing the hyperparameters and settings for the trainer (e.g., learning rate, batch size). The number of epochs is configured externally and will have no effect if defined here.
 
@@ -18,7 +19,7 @@ When creating your submission, you must follow this exact file structure:
 
 ```xml
 <files>
-    <file path="model.py">
+    <file path="main.py">
         ...
     </file>
     <file path="model_config.json">
@@ -28,11 +29,12 @@ When creating your submission, you must follow this exact file structure:
         ...
     </file>
 </files>
-```
+````
 
 You're forbidden from:
-- Using markdown code blocks inside the xml
-- Using <![CDATA[ to wrap code
+
+  - Using markdown code blocks inside the XML
+  - Using <![CDATA[ to wrap code
 
 # Problem
 

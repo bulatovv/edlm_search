@@ -37,6 +37,8 @@ class LLMPipeline:
         -------
             A dictionary where keys are file paths and values are file contents.
         """
+        # try prase cdata?
+        # try parse markdown code blocks?
         files_dict = {}
 
         # This regex finds all <file> tags and captures two groups:
