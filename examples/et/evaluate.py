@@ -19,8 +19,8 @@ class ETEvaluator(Evaluator):
         self._problem_dir = problem_dir
         self._problem = Problem.from_directory(problem_dir)
         full_train_df = pd.read_csv(os.path.join(problem_dir, 'ETTm1.csv'))
-        self._train_df = full_train_df.iloc[:-100]
-        self._validation_df = full_train_df.iloc[-100:]
+        self._train_df = full_train_df.iloc[:-200]
+        self._validation_df = full_train_df.iloc[-200:]
         self._ground_truth = self._validation_df['OT'].values
 
     async def evaluate(self, runner: UnsafeRunner, candidate: Candidate) -> dict[str, float]:
