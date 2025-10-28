@@ -3,11 +3,12 @@ from edlm_search.problem import Problem
 
 
 class Candidate:
-    def __init__(self): ...
+    def __init__(self, files: dict[str, str]):
+        self.files: dict[str, str] = files
 
     @classmethod
-    async def from_problem(cls, problem: Problem, llm_pipeline: LLMPipeline):
+    async def new_from_problem(cls, problem: Problem, llm_pipeline: LLMPipeline):
         files = await llm_pipeline.generate_files_from_template(
             'new_candidate', problem=problem
         )
-        print(files)
+        return Candidate(files)
