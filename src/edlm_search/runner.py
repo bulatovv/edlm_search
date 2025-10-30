@@ -1,6 +1,5 @@
 import asyncio
 import importlib.util
-import logging
 import os
 import sys
 import tempfile
@@ -27,15 +26,11 @@ class Runner(Protocol):
         validation_df: pd.DataFrame,
         run_args: dict | None = None,
     ):
-        """
-        Runs the candidate's code, yielding timestamped output lines.
-        """
+        """Runs the candidate's code, yielding timestamped output lines."""
         ...
 
     def stop(self):
-        """
-        Stops the currently running candidate process.
-        """
+        """Stops the currently running candidate process."""
         ...
 
 
@@ -78,9 +73,7 @@ def _run_candidate_in_process(
     queue,
     sentinel,
 ):
-    """
-    This function runs in a separate process and executes the candidate's code directly.
-    """
+    """This function runs in a separate process and executes the candidate's code directly."""
     # Yield the initial timestamp from inside the process for better precision
     queue.put({'process_start_time': datetime.now()})
     try:
@@ -121,7 +114,7 @@ def _run_candidate_in_process(
 
                     if not hasattr(main_module, 'main'):
                         raise RuntimeError('Candidate code does not have a main() function.')
-                    
+
                     monitor.begin_window('run')
                     main_module.main(**run_args)
 
@@ -137,9 +130,7 @@ def _run_candidate_in_process(
 
 
 class UnsafeRunner:
-    """
-    An unsafe runner that orchestrates model training in a separate, terminable process.
-    """
+    """An unsafe runner that orchestrates model training in a separate, terminable process."""
 
     def __init__(self):
         self._process: Process | None = None
@@ -151,13 +142,9 @@ class UnsafeRunner:
         validation_df: pd.DataFrame,
         run_args: dict | None = None,
     ):
-        """
-        Runs the candidate's main() function in a separate process, yielding stdout lines as they are produced.
-        """
+        """Runs the candidate's main() function in a separate process, yielding stdout lines as they are produced."""
         if self._process and self._process.is_alive():
-            raise RuntimeError(
-                'Another candidate is already running in this runner instance.'
-            )
+            raise RuntimeError('Another candidate is already running in this runner instance.')
 
         loop = asyncio.get_running_loop()
         manager = Manager()
@@ -193,9 +180,7 @@ class UnsafeRunner:
             self._process = None
 
     def stop(self):
-        """
-        Stops the currently running candidate process.
-        """
+        """Stops the currently running candidate process."""
         if self._process and self._process.is_alive():
             self._process.terminate()
             self._process = None
