@@ -18,9 +18,12 @@ You must provide three distinct files: a primary Python submission script and tw
 * **`model_config.json`**: A JSON file containing the configuration for your model's architecture (e.g., layer sizes, dropout rates, embedding dimensions).
 * **`training_args.json`**: A JSON file containing the hyperparameters and settings for the trainer (e.g., learning rate, batch size). The number of epochs is configured externally and will have no effect if defined here.
 
+In addition to these files, you must also provide the main idea of your solution in a single sentence.
+
 When creating your submission, you must follow this exact structure:
 
 ```xml
+<idea>{{ Your main idea in a single sentence. }}</idea>
 <files>
     <file path="main.py">
         ...
