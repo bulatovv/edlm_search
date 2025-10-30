@@ -10,7 +10,8 @@ You must provide three distinct files: a primary Python submission script and tw
         * A `.from_config(cls, num_epochs, config, model, dataset)` class method for its configuration and instantiation.
         * A `.predict(self, df)` method that takes input rows in the same format the `Dataset` consumes and returns predicted labels, reverse-transformed into their original format.
         * A `.train(self)` method that is a generator. This method must only perform the training loop. It must `yield` prediction labels on the validation dataset at the end of each training epoch.
-    * A `main(train_df, valid_df, num_epochs)` function. This is the script's entry point.
+    * A `main(train_data_path, valid_data_path, num_epochs)` function. This is the script's entry point.
+        * It should read the training and validation data from the provided Parquet file paths.
         * For each epoch, the function should print a single Python list `[...]` to standard output, containing your predictions for the validation set.
         * It should print current epoch validation labels, in the Python list format `[...]`, no additional text is allowed in stdout, only raw list data.
         * All configuration files are guaranteed to be present at runtime.

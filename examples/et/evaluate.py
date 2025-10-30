@@ -31,47 +31,70 @@ class ETEvaluator(Evaluator):
         # Define arbitrary sequence and prediction lengths as per user instruction
         seq_len = 96
         pred_len = 24
+        patience = 3
 
         run_args = {'num_epochs': 20}
-        
+
         # Construct the validation dataframe for the candidate from the validation set
         context_df = self._validation_df.head(seq_len).copy()
-        prediction_scaffold_df = self._validation_df.iloc[seq_len:seq_len + pred_len].copy()
+        prediction_scaffold_df = self._validation_df.iloc[
+            seq_len : seq_len + pred_len
+        ].copy()
         ground_truth = prediction_scaffold_df['OT'].values
-        
-        features_to_mask = [col for col in prediction_scaffold_df.columns if col != 'date']
+
+        features_to_mask = [
+            col for col in prediction_scaffold_df.columns if col != 'date'
+        ]
         prediction_scaffold_df[features_to_mask] = np.nan
-        
+
         validation_df_for_candidate = pd.concat([context_df, prediction_scaffold_df])
 
-        launch_timestamp, output_lines = await runner.run(
+        elapsed_times = []
+        losses = []
+        patience_counter = 0
+        best_loss = float('inf')
+        launch_timestamp = None
+
+        async for timestamp, line in runner.run(
             candidate=candidate,
             train_df=self._train_df,
             validation_df=validation_df_for_candidate,
             run_args=run_args,
-        )
+        ):
+            if line is None:
+                launch_timestamp = timestamp
+                continue
 
-        if not output_lines:
-            raise RunnerOutputParseError("No output received from the runner.")
+            if launch_timestamp is None:
+                raise RunnerOutputParseError('Runner did not yield a launch timestamp.')
 
-        elapsed_times = []
-        losses = []
-
-        for timestamp, line in output_lines:
             try:
                 predictions = np.array(ast.literal_eval(line))
-                
+
                 loss = mean_squared_error(ground_truth, predictions)
                 elapsed_time = (timestamp - launch_timestamp).total_seconds()
                 losses.append(loss)
                 elapsed_times.append(elapsed_time)
 
+                if loss < best_loss:
+                    best_loss = loss
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+
+                if patience_counter >= patience:
+                    runner.stop()
+                    break
+
             except (ValueError, SyntaxError):
-                raise RunnerOutputParseError("cannot parse candidate output") 
-        
+                raise RunnerOutputParseError('cannot parse candidate output')
+
+        if not losses:
+            raise RunnerOutputParseError('No output received from the runner.')
+
         if len(elapsed_times) < 2:
             raise RunnerOutputParseError(
-                "Could not parse at least two valid prediction outputs to calculate AUC."
+                'Could not parse at least two valid prediction outputs to calculate AUC.'
             )
 
         # Calculate the Area Under the Curve for the loss vs. time plot
