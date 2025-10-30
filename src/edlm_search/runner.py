@@ -1,7 +1,6 @@
 import asyncio
 import importlib.util
 import json
-import logging
 import os
 import sys
 import tempfile
@@ -90,8 +89,9 @@ class UnsafeRunner:
                 run_args['valid_data_path'] = str(validation_data_path)
                 run_args_json = json.dumps(run_args)
 
-                # 4. Start the subprocess
+                # 4. Set environment variable and start the subprocess
                 # We run this very module as a script (__name__)
+                os.environ['ZEUS_LOG_LEVEL'] = 'CRITICAL'
                 self._process = await asyncio.create_subprocess_exec(
                     sys.executable,  # The current python interpreter
                     '-m',
@@ -188,7 +188,6 @@ def _execute_candidate_script(temp_dir: str, run_args: dict):
         print(f'RUNNER_EVENT:PROCESS_START_TIME:{datetime.now().isoformat()}', flush=True)
 
         # 3. Set up monitoring
-        logging.getLogger('zeus').setLevel(logging.CRITICAL)
         monitor = ZeusMonitor(gpu_indices=[torch.cuda.current_device()])
 
         # 4. Dynamically import and run the candidate's main function
