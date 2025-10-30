@@ -38,7 +38,7 @@ class RunnerOutputParseError(Exception):
     pass
 
 
-class AsyncSubprocessRunner:
+class UnsafeRunner:
     """
     Runs a candidate in a separate, isolated Python process using asyncio.subprocess.
 
