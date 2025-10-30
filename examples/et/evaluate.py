@@ -4,7 +4,7 @@ import os
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import auc, mean_squared_error
 
 from edlm_search.candidate import Candidate
 from edlm_search.evaluator import Evaluator
@@ -35,22 +35,16 @@ class ETEvaluator(Evaluator):
         run_args = {'num_epochs': 20}
         
         # Construct the validation dataframe for the candidate from the validation set
-        # It contains seq_len of context from the start of the validation set...
         context_df = self._validation_df.head(seq_len).copy()
-        
-        # ...followed by a scaffold for the prediction period.
         prediction_scaffold_df = self._validation_df.iloc[seq_len:seq_len + pred_len].copy()
-        
-        # The ground truth corresponds to the prediction period
         ground_truth = prediction_scaffold_df['OT'].values
         
-        # Mask all feature and target columns in the prediction period
         features_to_mask = [col for col in prediction_scaffold_df.columns if col != 'date']
         prediction_scaffold_df[features_to_mask] = np.nan
         
         validation_df_for_candidate = pd.concat([context_df, prediction_scaffold_df])
 
-        launch_time, output_lines = await runner.run(
+        launch_timestamp, output_lines = await runner.run(
             candidate=candidate,
             train_df=self._train_df,
             validation_df=validation_df_for_candidate,
@@ -60,25 +54,27 @@ class ETEvaluator(Evaluator):
         if not output_lines:
             raise RunnerOutputParseError("No output received from the runner.")
 
-        # The last line should contain the single forecast of pred_len steps
-        _timestamp, last_line = output_lines[-1]
+        elapsed_times = []
+        losses = []
+
+        for timestamp, line in output_lines:
+            try:
+                predictions = np.array(ast.literal_eval(line))
+                
+                loss = mean_squared_error(ground_truth, predictions)
+                elapsed_time = (timestamp - launch_timestamp).total_seconds()
+                losses.append(loss)
+                elapsed_times.append(elapsed_time)
+
+            except (ValueError, SyntaxError):
+                raise RunnerOutputParseError("cannot parse candidate output") 
         
-        try:
-            predictions = ast.literal_eval(last_line)
-            predictions = np.array(predictions)
-
-            # Truncate predictions and ground_truth to the minimum length
-            min_len = min(len(predictions), len(ground_truth))
-            if min_len == 0:
-                raise ValueError("Prediction or ground truth is empty.")
-            
-            predictions = predictions[:min_len]
-            ground_truth = ground_truth[:min_len]
-
-            score = mean_squared_error(ground_truth, predictions)
-        except (ValueError, SyntaxError) as e:
+        if len(elapsed_times) < 2:
             raise RunnerOutputParseError(
-                f"Failed to parse runner output line: '{last_line}'"
-            ) from e
+                "Could not parse at least two valid prediction outputs to calculate AUC."
+            )
 
-        return {'mean_squared_error': score}
+        # Calculate the Area Under the Curve for the loss vs. time plot
+        loss_auc = auc(elapsed_times, losses)
+
+        return {'loss_vs_time_auc': loss_auc}
