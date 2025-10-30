@@ -107,10 +107,9 @@ def _run_candidate_in_process(
             sys.path.insert(0, str(temp_path))
             os.chdir(temp_path)
 
+            monitor = ZeusMonitor(gpu_indices=[torch.cuda.current_device()])
             try:
                 encoding = getattr(sys.stdout, 'encoding', 'utf-8')
-                logging.getLogger('zeus').setLevel(logging.CRITICAL + 1)
-                monitor = ZeusMonitor(gpu_indices=[torch.cuda.current_device()])
                 with QueueingStdoutInterceptor(encoding, queue):
                     # Dynamically import and run the candidate's main function
                     spec = importlib.util.spec_from_file_location('main', 'main.py')
@@ -125,10 +124,10 @@ def _run_candidate_in_process(
                     
                     monitor.begin_window('run')
                     main_module.main(**run_args)
-                    mes = monitor.end_window('run')
-                    queue.put({'total_energy_joules': mes.total_energy})
 
             finally:
+                mes = monitor.end_window('run')
+                queue.put({'total_energy_joules': mes.total_energy})
                 # Restore original state
                 os.chdir(original_cwd)
                 sys.path.remove(str(temp_path))
