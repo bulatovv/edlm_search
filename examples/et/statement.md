@@ -29,3 +29,8 @@ Each data point consists of 8 features. The **Oil Temperature (OT)** is the targ
 | `MULL` | Middle UseLess Load. | Exogenous |
 | `LUFL` | Low UseFul Load. | Exogenous |
 | `LULL` | Low UseLess Load. | Exogenous |
+
+---
+
+## Validation Data Structure
+The `valid_df` passed to your `main` function is specially constructed for forecasting. It will contain a sequence of `sequence_length` historical data points followed by `prediction_length` time steps where the target (`OT`) and all feature columns (except for `date`) have been masked with `NaN`. Your task is to train your model on `train_df` and then use the historical context in `valid_df` to predict the `OT` values for the `prediction_length` masked period.

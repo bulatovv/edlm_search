@@ -10,7 +10,8 @@ You must provide three distinct files: a primary Python submission script and tw
         * A `.from_config(cls, num_epochs, config, model, dataset)` class method for its configuration and instantiation.
         * A `.predict(self, df)` method that takes input rows in the same format the `Dataset` consumes and returns predicted labels, reverse-transformed into their original format.
         * A `.train(self)` method that is a generator. This method must only perform the training loop. It must `yield` prediction labels on the validation dataset at the end of each training epoch.
-    * A `main(train_df, valid_df, num_epochs)` function, which will act as a script entrypoint, initiating the model, dataset and trainer. It should print current epoch validation labels, in the Python list format `[...]`
+    * A `main(train_df, valid_df, num_epochs)` function. This is the script's entry point.
+        * For each epoch, the function should print a single Python list `[...]` to standard output, containing your predictions for the validation set.
     * No other section, like `if __name__ == `__main__`, is** required
 * **`model_config.json`**: A JSON file containing the configuration for your model's architecture (e.g., layer sizes, dropout rates, embedding dimensions).
 * **`training_args.json`**: A JSON file containing the hyperparameters and settings for the trainer (e.g., learning rate, batch size). The number of epochs is configured externally and will have no effect if defined here.
