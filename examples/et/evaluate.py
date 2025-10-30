@@ -68,24 +68,24 @@ class ETEvaluator(Evaluator):
                 raise RunnerOutputParseError('Runner did not yield a launch timestamp.')
 
             try:
-                timestamp = item['timestamp']
-                line = item['stdout_line']
-                predictions = np.array(ast.literal_eval(line))
+                if patience_counter <= patience:
+                    timestamp = item['timestamp']
+                    line = item['stdout_line']
+                    predictions = np.array(ast.literal_eval(line))
 
-                loss = mean_squared_error(ground_truth, predictions)
-                elapsed_time = (timestamp - launch_timestamp).total_seconds()
-                losses.append(loss)
-                elapsed_times.append(elapsed_time)
+                    loss = mean_squared_error(ground_truth, predictions)
+                    elapsed_time = (timestamp - launch_timestamp).total_seconds()
+                    losses.append(loss)
+                    elapsed_times.append(elapsed_time)
 
-                if loss < best_loss:
-                    best_loss = loss
-                    patience_counter = 0
-                else:
-                    patience_counter += 1
+                    if loss < best_loss:
+                        best_loss = loss
+                        patience_counter = 0
+                    else:
+                        patience_counter += 1
 
                 if patience_counter >= patience:
                     runner.stop()
-                    break
 
             except (ValueError, SyntaxError):
                 raise RunnerOutputParseError('cannot parse candidate output')

@@ -116,7 +116,10 @@ def _run_candidate_in_process(
                         raise RuntimeError('Candidate code does not have a main() function.')
 
                     monitor.begin_window('run')
-                    main_module.main(**run_args)
+                    try:
+                        main_module.main(**run_args)
+                    except Exception as e:
+                        queue.put({'exception': e})
 
             finally:
                 mes = monitor.end_window('run')
@@ -171,6 +174,8 @@ class UnsafeRunner:
                     item = await loop.run_in_executor(pool, queue.get)
                     if item is sentinel:
                         break
+                    if 'exception' in item:
+                        raise item['exception']
                     yield item
         finally:
             if self._process and self._process.is_alive():
