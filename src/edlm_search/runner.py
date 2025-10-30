@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import logging
 import os
 import sys
 import tempfile
@@ -108,6 +109,7 @@ def _run_candidate_in_process(
 
             try:
                 encoding = getattr(sys.stdout, 'encoding', 'utf-8')
+                logging.getLogger('zeus').setLevel(logging.CRITICAL + 1)
                 monitor = ZeusMonitor(gpu_indices=[torch.cuda.current_device()])
                 with QueueingStdoutInterceptor(encoding, queue):
                     # Dynamically import and run the candidate's main function
