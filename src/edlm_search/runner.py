@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Protocol
 
 import pandas as pd
+import torch
+from zeus.monitor import ZeusMonitor
 
 from edlm_search.candidate import Candidate
 
@@ -51,7 +53,7 @@ class QueueingStdoutInterceptor:
         self.buffer += data
         while '\n' in self.buffer:
             line, self.buffer = self.buffer.split('\n', 1)
-            self.queue.put((datetime.now(), line))
+            self.queue.put({'timestamp': datetime.now(), 'stdout_line': line})
 
     def flush(self):
         pass
@@ -63,7 +65,7 @@ class QueueingStdoutInterceptor:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.buffer:
-            self.queue.put((datetime.now(), self.buffer))
+            self.queue.put({'timestamp': datetime.now(), 'stdout_line': self.buffer})
         sys.stdout = self.original_stdout
 
 
@@ -79,7 +81,7 @@ def _run_candidate_in_process(
     This function runs in a separate process and executes the candidate's code directly.
     """
     # Yield the initial timestamp from inside the process for better precision
-    queue.put((datetime.now(), None))
+    queue.put({'process_start_time': datetime.now()})
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -106,6 +108,7 @@ def _run_candidate_in_process(
 
             try:
                 encoding = getattr(sys.stdout, 'encoding', 'utf-8')
+                monitor = ZeusMonitor(gpu_indices=[torch.cuda.current_device()])
                 with QueueingStdoutInterceptor(encoding, queue):
                     # Dynamically import and run the candidate's main function
                     spec = importlib.util.spec_from_file_location('main', 'main.py')
@@ -117,8 +120,12 @@ def _run_candidate_in_process(
 
                     if not hasattr(main_module, 'main'):
                         raise RuntimeError('Candidate code does not have a main() function.')
-
+                    
+                    monitor.begin_window('run')
                     main_module.main(**run_args)
+                    mes = monitor.end_window('run')
+                    queue.put({'total_energy_joules': mes.total_energy})
+
             finally:
                 # Restore original state
                 os.chdir(original_cwd)
@@ -178,9 +185,9 @@ class UnsafeRunner:
                         break
                     yield item
         finally:
-            if self._process.is_alive():
+            if self._process and self._process.is_alive():
                 self._process.join(timeout=1)
-            if self._process.is_alive():
+            if self._process and self._process.is_alive():
                 self._process.terminate()
             self._process = None
 

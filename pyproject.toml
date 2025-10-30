@@ -15,6 +15,7 @@ dependencies = [
     "pyarrow>=22.0.0",
     "scikit-learn>=1.7.2",
     "torch>=2.9.0",
+    "zeus>=0.12.3",
 ]
 
 [dependency-groups]

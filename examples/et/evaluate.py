@@ -54,21 +54,28 @@ class ETEvaluator(Evaluator):
         patience_counter = 0
         best_loss = float('inf')
         launch_timestamp = None
+        total_energy_joules = None
 
-        async for timestamp, line in runner.run(
+        async for item in runner.run(
             candidate=candidate,
             train_df=self._train_df,
             validation_df=validation_df_for_candidate,
             run_args=run_args,
         ):
-            if line is None:
-                launch_timestamp = timestamp
+            if 'process_start_time' in item:
+                launch_timestamp = item['process_start_time']
+                continue
+            
+            if 'total_energy_joules' in item:
+                total_energy_joules = item['total_energy_joules']
                 continue
 
             if launch_timestamp is None:
                 raise RunnerOutputParseError('Runner did not yield a launch timestamp.')
 
             try:
+                timestamp = item['timestamp']
+                line = item['stdout_line']
                 predictions = np.array(ast.literal_eval(line))
 
                 loss = mean_squared_error(ground_truth, predictions)
@@ -100,4 +107,8 @@ class ETEvaluator(Evaluator):
         # Calculate the Area Under the Curve for the loss vs. time plot
         loss_auc = auc(elapsed_times, losses)
 
-        return {'loss_vs_time_auc': loss_auc}
+        result = {'loss_vs_time_auc': loss_auc}
+        if total_energy_joules is not None:
+            result['total_energy_joules'] = total_energy_joules
+        
+        return result
