@@ -1,6 +1,4 @@
-import asyncio
-import importlib.util
-import json
+import logging
 import os
 import sys
 import tempfile
@@ -40,8 +38,14 @@ class RunnerOutputParseError(Exception):
     pass
 
 
-class UnsafeRunner:
-    """Runs a candidate in a separate, isolated Python process using asyncio.subprocess."""
+class AsyncSubprocessRunner:
+    """
+    Runs a candidate in a separate, isolated Python process using asyncio.subprocess.
+
+    This approach avoids the deadlocks associated with fork(), threading,
+    and multiprocessing.Manager by starting a clean process and communicating
+    over standard pipes.
+    """
 
     def __init__(self):
         self._process: asyncio.subprocess.Process | None = None
@@ -98,6 +102,7 @@ class UnsafeRunner:
                 )
 
                 # 5. Asynchronously read output from the process
+                start_time_found = False
                 while True:
                     line_bytes = await self._process.stdout.readline()
                     if not line_bytes:
@@ -105,10 +110,18 @@ class UnsafeRunner:
 
                     line = line_bytes.decode('utf-8', 'replace').rstrip()
 
-                    # Parse special, structured messages from the child
+                    if not start_time_found:
+                        if line.startswith('RUNNER_EVENT:PROCESS_START_TIME:'):
+                            start_time_found = True
+                            ts_str = line.split(':', 2)[-1]
+                            yield {'process_start_time': datetime.fromisoformat(ts_str)}
+                        # Discard any other lines until start time is found
+                        continue
+
+                    # After start time is found, process normally
+                    # (but skip reprocessing the start time event itself)
                     if line.startswith('RUNNER_EVENT:PROCESS_START_TIME:'):
-                        ts_str = line.split(':', 2)[-1]
-                        yield {'process_start_time': datetime.fromisoformat(ts_str)}
+                        continue
 
                     elif line.startswith('RUNNER_EVENT:ZEUS_MEASUREMENT:'):
                         json_data = line.split(':', 2)[-1]
@@ -172,6 +185,7 @@ def _execute_candidate_script(temp_dir: str, run_args: dict):
         print(f'RUNNER_EVENT:PROCESS_START_TIME:{datetime.now().isoformat()}', flush=True)
 
         # 3. Set up monitoring
+        logging.getLogger('zeus').setLevel(logging.CRITICAL)
         monitor = ZeusMonitor(gpu_indices=[torch.cuda.current_device()])
 
         # 4. Dynamically import and run the candidate's main function
