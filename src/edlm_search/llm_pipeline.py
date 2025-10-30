@@ -75,7 +75,7 @@ class LLMPipeline:
 
     async def generate_files_from_template(
         self, template_name: str, **kwargs
-    ) -> dict[str, str]:
+    ) -> tuple[str, dict[str, str]]:
         template_name = template_name.removesuffix('.jinja').removesuffix('.md')
         prompt_template = jinja_env.get_template(f'{template_name}.md.jinja')
 
@@ -91,4 +91,16 @@ class LLMPipeline:
         print(output)
         assert output
 
-        return self._parse_xml_files(output)
+        idea_match = re.search(r'<idea>(.*?)</idea>', output, re.DOTALL)
+        if not idea_match:
+            raise ModelOutputParseError('failed to find <idea>...</idea> section')
+        idea = idea_match.group(1).strip()
+
+        files_match = re.search(r'<files>(.*?)</files>', output, re.DOTALL)
+        if not files_match:
+            raise ModelOutputParseError('failed to find <files>...</files> section')
+        files_content = files_match.group(1)
+
+        files_dict = self._parse_xml_files(files_content)
+
+        return idea, files_dict
