@@ -40,14 +40,8 @@ class RunnerOutputParseError(Exception):
     pass
 
 
-class AsyncSubprocessRunner:
-    """
-    Runs a candidate in a separate, isolated Python process using asyncio.subprocess.
-
-    This approach avoids the deadlocks associated with fork(), threading,
-    and multiprocessing.Manager by starting a clean process and communicating
-    over standard pipes.
-    """
+class UnsafeRunner:
+    """Runs a candidate in a separate, isolated Python process using asyncio.subprocess."""
 
     def __init__(self):
         self._process: asyncio.subprocess.Process | None = None
