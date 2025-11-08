@@ -15,6 +15,8 @@ load_dotenv()
 
 
 class ETEvaluator(Evaluator):
+    """Evaluates candidates on the Electricity Transformer forecasting problem."""
+
     def __init__(self, problem_dir: str):
         self._problem_dir = problem_dir
         self._problem = Problem.from_directory(problem_dir)
@@ -87,8 +89,8 @@ class ETEvaluator(Evaluator):
                 if patience_counter >= patience:
                     runner.stop()
 
-            except (ValueError, SyntaxError):
-                raise RunnerOutputParseError('cannot parse candidate output')
+            except (ValueError, SyntaxError) as e:
+                raise RunnerOutputParseError('cannot parse candidate output') from e
 
         if not losses:
             raise RunnerOutputParseError('No output received from the runner.')

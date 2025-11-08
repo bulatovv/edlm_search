@@ -13,10 +13,14 @@ jinja_env = Environment(
 
 
 class ModelOutputParseError(Exception):
+    """Raised when the output from the language model is not in the expected format."""
+
     pass
 
 
 class LLMPipeline:
+    """Manages interactions with a language model to generate and parse responses."""
+
     def __init__(self, async_openai: AsyncOpenAI, model_name: str):
         self._async_openai = async_openai
         self._model_name: str = model_name
@@ -76,6 +80,17 @@ class LLMPipeline:
     async def generate_files_from_template(
         self, template_name: str, **kwargs
     ) -> tuple[str, dict[str, str]]:
+        """
+        Generate files from a Jinja2 template rendered with the given context.
+
+        Args:
+            template_name: The name of the Jinja2 template to use.
+            **kwargs: The context to render the template with.
+
+        Returns
+        -------
+            A tuple containing the idea and a dictionary of file paths to file contents.
+        """
         template_name = template_name.removesuffix('.jinja').removesuffix('.md')
         prompt_template = jinja_env.get_template(f'{template_name}.md.jinja')
 

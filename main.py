@@ -14,6 +14,7 @@ load_dotenv()
 
 
 async def main():
+    """Run the evaluation pipeline for a newly generated candidate."""
     problem_dir = './examples/et'
     evaluator = ETEvaluator(problem_dir)
     runner = UnsafeRunner()
