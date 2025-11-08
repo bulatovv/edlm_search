@@ -260,20 +260,18 @@ def _execute_candidate_script(temp_dir: str, run_args: dict):
             # Report exception to parent and exit with error
             send_event('exception', {'message': str(e)})
             sys.exit(1)
-
-        finally:
-            # 5. Report measurements and exit cleanly
+        else:
+            # 5. Report measurements and exit cleanly on success
             if monitor:
                 mes = monitor.end_window('run')
                 result = {'total_energy_joules': mes.total_energy}
                 send_event('zeus', result)
-
-            # Restore original state
+            sys.exit(0)
+        finally:
+            # 6. Restore original state
             os.chdir(original_cwd)
             if str(temp_path) in sys.path:
                 sys.path.remove(str(temp_path))
-
-            sys.exit(0)
 
 
 if __name__ == '__main__':
