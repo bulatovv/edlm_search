@@ -56,6 +56,7 @@ class UnsafeRunner:
     def __init__(self):
         self._process: asyncio.subprocess.Process | None = None
         self._comm_transport: asyncio.transports.ReadTransport | None = None
+        self._stopped_by_user = False
 
     async def run(
         self,
@@ -70,6 +71,8 @@ class UnsafeRunner:
         Yields metrics and stdout lines as they are produced.
         """
         pickling_support.install()
+
+        self._stopped_by_user = False
 
         if self._process:
             raise RuntimeError('Another candidate is already running in this runner instance.')
@@ -153,10 +156,31 @@ class UnsafeRunner:
                             line = line_bytes.decode('utf-8', 'replace').rstrip()
                             try:
                                 event = json.loads(line)
-                                event_type = event.get('type')
+                            except json.JSONDecodeError as e:
+                                raise RunnerOutputParseError(
+                                    f'Could not parse JSON from child: {line}'
+                                ) from e
+
+                            event_type = event.get('type')
+
+                            if event_type == 'exception':
+                                try:
+                                    exc_info_bytes = base64.b64decode(
+                                        event['data']['exc_info']
+                                    )
+                                    exc_info = pickle.loads(exc_info_bytes)
+                                except Exception as e:
+                                    raise RunnerOutputParseError(
+                                        f'Failed to unpickle exception from child: {e}'
+                                    ) from e
+                                raise exc_info[1].with_traceback(exc_info[2])
+
+                            try:
                                 if event_type == 'start':
                                     ts_str = event['data']['process_start_time']
-                                    yield {'process_start_time': datetime.fromisoformat(ts_str)}
+                                    yield {
+                                        'process_start_time': datetime.fromisoformat(ts_str)
+                                    }
                                 elif event_type == 'zeus':
                                     yield event['data']
                                 elif event_type == 'epoch_result':
@@ -164,36 +188,26 @@ class UnsafeRunner:
                                         'timestamp': datetime.now(),
                                         'epoch_result': event['data']['predictions'],
                                     }
-                                elif event_type == 'exception':
-                                    try:
-                                        exc_info_bytes = base64.b64decode(
-                                            event['data']['exc_info']
-                                        )
-                                        exc_info = pickle.loads(exc_info_bytes)
-                                        raise exc_info[1].with_traceback(exc_info[2])
-                                    except Exception as e:
-                                        raise RunnerOutputParseError(
-                                            f'Failed to unpickle exception from child: {e}'
-                                        )
-                            except (json.JSONDecodeError, KeyError) as e:
+                            except KeyError as e:
                                 raise RunnerOutputParseError(
-                                    f'Invalid event from child: {line}'
+                                    f'Invalid event data from child: {line}'
                                 ) from e
                             tasks[asyncio.create_task(comm_pipe_reader.readline())] = 'comm'
 
                 # 6. Wait for the process to exit and check for errors
                 return_code = await self._process.wait()
-                if return_code != 0:
+                if return_code != 0 and not self._stopped_by_user:
                     raise RunnerOutputParseError(
                         f'Candidate process exited with non-zero code: {return_code}'
                     )
 
         finally:
             # 7. Cleanup
-            os.close(comm_r)
             if self._comm_transport:
                 self._comm_transport.close()
-                self._comm_transport = None
+            else:
+                os.close(comm_r)
+            self._comm_transport = None
             if self._process and self._process.returncode is None:
                 try:
                     self._process.terminate()
@@ -205,9 +219,9 @@ class UnsafeRunner:
     def stop(self):
         """Stops the currently running candidate process."""
         if self._process and self._process.returncode is None:
+            self._stopped_by_user = True
             with contextlib.suppress(ProcessLookupError):
                 self._process.terminate()
-            self._process = None
 
 
 def _execute_candidate_script(temp_dir: str, run_args: dict):
@@ -225,11 +239,19 @@ def _execute_candidate_script(temp_dir: str, run_args: dict):
     # The child process only writes to it.
     with os.fdopen(comm_fd, 'w') as comm_pipe:
 
+        class CustomEncoder(json.JSONEncoder):
+            def default(self, o):
+                if hasattr(o, 'tolist'):
+                    return o.tolist()
+                if hasattr(o, 'item'):  # for numpy scalars
+                    return o.item()
+                return super().default(o)
+
         def send_event(event_type: str, data: dict):
             """Sends a JSON-encoded event to the parent process."""
             try:
                 event = {'type': event_type, 'data': data}
-                json.dump(event, comm_pipe)
+                json.dump(event, comm_pipe, cls=CustomEncoder)
                 comm_pipe.write('\n')
                 comm_pipe.flush()
             except (OSError, BrokenPipeError):

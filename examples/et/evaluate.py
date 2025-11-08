@@ -58,6 +58,7 @@ class ETEvaluator(Evaluator):
             validation_df=validation_df_for_candidate,
             run_args=run_args,
         ):
+            print(item)
             if 'process_start_time' in item:
                 launch_timestamp = item['process_start_time']
                 continue
@@ -66,14 +67,18 @@ class ETEvaluator(Evaluator):
                 total_energy_joules = item['total_energy_joules']
                 continue
 
+            if 'stdout_line' in item:
+                continue
+
             if launch_timestamp is None:
                 raise RunnerOutputParseError('Runner did not yield a launch timestamp.')
 
             try:
-                if patience_counter <= patience:
+                # Process results only if they are epoch results and we haven't timed out
+                if patience_counter <= patience and 'epoch_result' in item:
                     timestamp = item['timestamp']
-                    line = item['stdout_line']
-                    predictions = np.array(ast.literal_eval(line))
+                    # Predictions are now received directly from the structured data pipe
+                    predictions = np.array(item['epoch_result'])
 
                     loss = mean_squared_error(ground_truth, predictions)
                     elapsed_time = (timestamp - launch_timestamp).total_seconds()
@@ -89,8 +94,8 @@ class ETEvaluator(Evaluator):
                 if patience_counter >= patience:
                     runner.stop()
 
-            except (ValueError, SyntaxError) as e:
-                raise RunnerOutputParseError('cannot parse candidate output') from e
+            except (ValueError, SyntaxError, KeyError) as e:
+                raise RunnerOutputParseError('Cannot parse candidate output from epoch_result') from e
 
         if not losses:
             raise RunnerOutputParseError('No output received from the runner.')
