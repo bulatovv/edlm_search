@@ -1,8 +1,10 @@
 import asyncio
+import base64
 import contextlib
 import importlib.util
 import json
 import os
+import pickle
 import sys
 import tempfile
 from argparse import ArgumentParser
@@ -12,6 +14,7 @@ from typing import Protocol
 
 import pandas as pd
 import torch
+from tblib import pickling_support
 from zeus.monitor import ZeusMonitor
 
 from edlm_search.candidate import Candidate
@@ -66,6 +69,8 @@ class UnsafeRunner:
 
         Yields metrics and stdout lines as they are produced.
         """
+        pickling_support.install()
+
         if self._process:
             raise RuntimeError('Another candidate is already running in this runner instance.')
 
@@ -148,21 +153,28 @@ class UnsafeRunner:
                             line = line_bytes.decode('utf-8', 'replace').rstrip()
                             try:
                                 event = json.loads(line)
-                                if event.get('type') == 'start':
+                                event_type = event.get('type')
+                                if event_type == 'start':
                                     ts_str = event['data']['process_start_time']
                                     yield {'process_start_time': datetime.fromisoformat(ts_str)}
-                                elif event.get('type') == 'zeus':
+                                elif event_type == 'zeus':
                                     yield event['data']
-                                elif event.get('type') == 'exception':
-                                    msg = event['data']['message']
-                                    raise RunnerOutputParseError(
-                                        f'Candidate script failed: {msg}'
-                                    )
-                                elif event.get('type') == 'epoch_result':
+                                elif event_type == 'epoch_result':
                                     yield {
                                         'timestamp': datetime.now(),
                                         'epoch_result': event['data']['predictions'],
                                     }
+                                elif event_type == 'exception':
+                                    try:
+                                        exc_info_bytes = base64.b64decode(
+                                            event['data']['exc_info']
+                                        )
+                                        exc_info = pickle.loads(exc_info_bytes)
+                                        raise exc_info[1].with_traceback(exc_info[2])
+                                    except Exception as e:
+                                        raise RunnerOutputParseError(
+                                            f'Failed to unpickle exception from child: {e}'
+                                        )
                             except (json.JSONDecodeError, KeyError) as e:
                                 raise RunnerOutputParseError(
                                     f'Invalid event from child: {line}'
@@ -207,6 +219,7 @@ def _execute_candidate_script(temp_dir: str, run_args: dict):
     sends structured events (start, results, metrics, exceptions) back to the
     parent process over a dedicated communication pipe.
     """
+    pickling_support.install()
     comm_fd = int(os.environ['COMM_PIPE_FD'])
     # The parent process is responsible for closing the read end of the pipe.
     # The child process only writes to it.
@@ -256,9 +269,12 @@ def _execute_candidate_script(temp_dir: str, run_args: dict):
             for epoch_predictions in main_generator:
                 send_event('epoch_result', {'predictions': epoch_predictions})
 
-        except Exception as e:
+        except Exception:
             # Report exception to parent and exit with error
-            send_event('exception', {'message': str(e)})
+            exc_info = sys.exc_info()
+            exc_info_bytes = pickle.dumps(exc_info)
+            exc_info_b64 = base64.b64encode(exc_info_bytes).decode('utf-8')
+            send_event('exception', {'exc_info': exc_info_b64})
             sys.exit(1)
         else:
             # 5. Report measurements and exit cleanly on success
@@ -279,6 +295,7 @@ if __name__ == '__main__':
     This block is executed when the module is run as a script
     (e.g., `python -m my_module_name ...`)
     """
+    pickling_support.install()
     parser = ArgumentParser()
     parser.add_argument(
         '--temp-dir', required=True, help='Temporary directory with candidate files'
@@ -288,7 +305,7 @@ if __name__ == '__main__':
 
     try:
         run_args_dict = json.loads(args.run_args)
-    except json.JSONDecodeError as e:
+    except Exception:
         # Try to report the specific error over the comm pipe.
         # If this fails, the parent will catch the non-zero exit code.
         comm_fd_str = os.environ.get('COMM_PIPE_FD')
@@ -296,9 +313,12 @@ if __name__ == '__main__':
             with contextlib.suppress(OSError, BrokenPipeError, ValueError):
                 comm_fd = int(comm_fd_str)
                 with os.fdopen(comm_fd, 'w') as comm_pipe:
+                    exc_info = sys.exc_info()
+                    exc_info_bytes = pickle.dumps(exc_info)
+                    exc_info_b64 = base64.b64encode(exc_info_bytes).decode('utf-8')
                     event = {
                         'type': 'exception',
-                        'data': {'message': f'Failed to decode run-args JSON: {e}'},
+                        'data': {'exc_info': exc_info_b64},
                     }
                     json.dump(event, comm_pipe)
                     comm_pipe.write('\n')
